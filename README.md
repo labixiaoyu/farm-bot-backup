@@ -16,32 +16,6 @@
 
 ---
 
-### 🌐 在线体验
-
-* **演示站点**：[http://112.124.43.11:8888/](http://112.124.43.11:8888/)
-* STAR STAR STAR STAR STAR 麻烦给下star
-> **💡 提示**：为方便开发者与用户测试，系统提供了以下演示卡密，可直接在登录界面使用。2026/2/25 14:50 更新了新一批测试月卡 烦请点下右上角star⭐。
-#### 🔑 演示测试卡密
-
-```text
-FARM-MM1OCPSM-98FE3B86
-FARM-MM1OCPSM-133D8301
-FARM-MM1OCPSM-618376D7
-FARM-MM1OCPSM-912FB822
-FARM-MM1OCPSM-EA355400
-FARM-MM1OCPSM-779D5A2C
-FARM-MM1OCPSM-D2CF7C63
-FARM-MM1OCPSM-864622A8
-FARM-MM1OCPSM-26E5BEA5
-FARM-MM1OCPSM-80BEDE78
-```
-
-<br/>
-
-<img src="./QQ20260221-135818.png" alt="Terminal-Farm-Business卡密登录" style="max-width: 100%; border-radius: 8px; margin-bottom: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);" />
-<img src="./1234.png" alt="Terminal-Farm-Business用户端" style="max-width: 100%; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);" />
-<img src="./5678.png" alt="Terminal-Farm-Business管理端" style="max-width: 100%; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);" />
-<br/>
 
 > [!NOTE]
 > **项目背景与来源**
