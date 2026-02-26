@@ -1,0 +1,14 @@
+[Unit]
+Description=QRLib Login Service
+After=network.target
+
+[Service]
+Type=simple
+# Please update with your actual project path
+WorkingDirectory=/root/Terminal-Farm-Business/QRLib-main
+ExecStart=/usr/bin/node src/server.js
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

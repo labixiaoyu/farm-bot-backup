@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QQ农场脚本 - 仪表盘预览</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Courier New', Courier, monospace;
+            background-color: #000;
+            color: #0f0;
+            line-height: 1.4;
+        }
+
+        .app {
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .retro-shell {
+            max-width: 1200px;
+            margin: 0 auto;
+            border: 2px solid #0f0;
+            border-radius: 5px;
+            overflow: hidden;
+        }
+
+        .retro-announcement {
+            padding: 10px;
+            background-color: rgba(0, 136, 255, 0.6);
+            border-bottom: 1px solid #0f0;
+        }
+
+        .retro-tabs {
+            display: flex;
+            flex-wrap: wrap;
+            background-color: #111;
+            border-bottom: 1px solid #0f0;
+        }
+
+        .retro-tab {
+            background-color: #222;
+            border: 1px solid #0f0;
+            border-radius: 3px 3px 0 0;
+            padding: 8px 12px;
+            margin-right: 5px;
+            color: #0f0;
+            cursor: pointer;
+            font-family: 'Courier New', Courier, monospace;
+        }
+
+        .retro-tab.active {
+            background-color: #333;
+            border-bottom: 1px solid #333;
+        }
+
+        .retro-tab.muted {
+            opacity: 0.7;
+        }
+
+        .retro-tab.accent {
+            background-color: #224;
+        }
+
+        .retro-panel {
+            padding: 15px;
+            border-bottom: 1px solid #0f0;
+        }
+
+        .retro-status {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            background-color: #111;
+        }
+
+        .retro-status span {
+            margin-right: 15px;
+        }
+
+        .gold {
+            color: #ff0;
+        }
+
+        .exp {
+            color: #f0f;
+        }
+
+        .status-exp {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status-exp-bar {
+            width: 100px;
+            height: 10px;
+            background-color: #222;
+            border: 1px solid #0f0;
+            overflow: hidden;
+        }
+
+        .status-exp-bar i {
+            display: block;
+            height: 100%;
+            background-color: #0f0;
+            width: 75%;
+        }
+
+        .retro-card-info {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            background-color: #111;
+        }
+
+        .retro-meta {
+            margin-right: 15px;
+        }
+
+        .retro-main {
+            display: flex;
+            gap: 20px;
+        }
+
+        .retro-farm {
+            flex: 1;
+        }
+
+        .retro-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .retro-land {
+            border: 1px solid #0f0;
+            padding: 10px;
+            background-color: #111;
+            border-radius: 3px;
+        }
+
+        .retro-land .line1 {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .retro-land .line2 {
+            margin-bottom: 5px;
+        }
+
+        .retro-land .line2.mature {
+            color: #ff0;
+            font-weight: bold;
+        }
+
+        .retro-land .line2.dead {
+            color: #f00;
+            font-weight: bold;
+        }
+
+        .retro-land .bar {
+            display: inline-block;
+            width: 100px;
+            height: 10px;
+            background-color: #222;
+            border: 1px solid #0f0;
+            overflow: hidden;
+            margin-right: 10px;
+        }
+
+        .retro-land .bar i {
+            display: block;
+            height: 100%;
+            background-color: #0f0;
+            width: 60%;
+        }
+
+        .retro-land .line3 {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 5px;
+        }
+
+        .retro-land .line3-status {
+            color: #ff0;
+            font-size: 12px;
+        }
+
+        .retro-side {
+            width: 300px;
+        }
+
+        .kv {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 5px;
+        }
+
+        .retro-friends {
+            background-color: #111;
+        }
+
+        .friend-stats-inline {
+            display: flex;
+            gap: 15px;
+            margin: 10px 0;
+        }
+
+        .friend-list-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .friend-chip {
+            border: 1px solid #0f0;
+            padding: 5px;
+            text-align: center;
+            background-color: #222;
+            border-radius: 3px;
+        }
+
+        .friend-chip-name {
+            display: block;
+            font-size: 12px;
+            margin-bottom: 3px;
+        }
+
+        .friend-chip-lv {
+            font-size: 10px;
+            color: #ff0;
+        }
+
+        .retro-logs {
+            background-color: #111;
+        }
+
+        .log-box {
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid #0f0;
+            padding: 10px;
+            background-color: #000;
+            margin-top: 10px;
+        }
+
+        .log-line {
+            margin-bottom: 5px;
+            font-size: 12px;
+        }
+
+        .log-line .time {
+            color: #0ff;
+            margin-right: 10px;
+        }
+
+        .log-line .tag {
+            color: #f0f;
+            margin-right: 10px;
+        }
+
+        .log-line .msg {
+            color: #0f0;
+        }
+
+        @media (max-width: 768px) {
+            .retro-main {
+                flex-direction: column;
+            }
+
+            .retro-side {
+                width: 100%;
+            }
+
+            .retro-grid {
+                grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            }
+        }
+    </style>
+</head>
+<body>
+    <div className="app">
+        <div className="retro-shell">
+            <div className="retro-announcement info">
+                SYSTEM: 欢迎使用QQ农场脚本！当前版本：v1.0.0
+            </div>
+
+            <div className="retro-panel retro-tabs">
+                <button className="retro-tab active">[1] 测试账号(QQ)</button>
+                <button className="retro-tab">[+] 添加账号</button>
+                <button className="retro-tab muted">[||] 暂停当前帐号脚本</button>
+                <button className="retro-tab muted">[▶] 继续当前帐号脚本</button>
+                <button className="retro-tab muted">[↻] 重新登录当前帐号</button>
+                <button className="retro-tab accent">[⚙] 配置</button>
+            </div>
+
+            <div className="retro-panel retro-status">
+                <span>QQ 测试账号 (QQ:123456789)</span>
+                <span>Lv37</span>
+                <span className="gold">金币 123,456</span>
+                <span className="gold">点券 789</span>
+                <div className="status-exp">
+                    <span>经验</span>
+                    <span className="status-exp-bar"><i style={{ width: '75%' }} /></span>
+                    <span className="status-exp-text">(692,214/800,000)</span>
+                </div>
+                <div className="retro-income">
+                    <span>本次收益: <span className="gold">+1,234 金币</span> / <span className="exp">+567 经验</span></span>
+                </div>
+                <div className="retro-runtime-pack">
+                    <span>当前账号挂机时长: 12h34m56s</span>
+                </div>
+            </div>
+
+            <div className="retro-panel retro-card-info">
+                <span className="retro-meta">卡密类型: 月卡</span>
+                <span className="retro-meta">卡密到期时间: 2026-03-19 00:00:00</span>
+                <span className="retro-meta">该卡密最大绑定账号数: 5</span>
+                <span className="retro-meta">已绑定账号数: 1</span>
+                <span className="retro-meta">用户编号: user123456</span>
+                <button className="retro-setting-link">[扩容]</button>
+                <button className="retro-setting-link">[续期]</button>
+            </div>
+
+            <div className="retro-main">
+                <section className="retro-panel retro-farm">
+                    <h3>农场 (18/24块已种植，总24块)</h3>
+                    <div className="retro-grid">
+                        <div className="retro-land">
+                            <div className="line1">#01 <span className="is-normal">普通</span> 小麦</div>
+                            <div className="line2">
+                                <span className="bar"><i style={{ width: '75%' }} /></span>
+                                <span className="pct">75%</span>
+                            </div>
+                            <div className="line3">
+                                <span className="remain-label">剩余</span>
+                                <span className="remain-val">15m30s</span>
+                            </div>
+                            <div className="line4">&nbsp;</div>
+                        </div>
+                        <div className="retro-land">
+                            <div className="line1">#02 <span className="is-red">红土</span> 玉米</div>
+                            <div className="line2 mature">可收获</div>
+                            <div className="line3">
+                                <span className="remain-label">剩余</span>
+                                <span className="remain-val">0s</span>
+                            </div>
+                            <div className="line4">&nbsp;</div>
+                        </div>
+                        <div className="retro-land">
+                            <div className="line1">#03 <span className="is-black">黑土</span> 水稻</div>
+                            <div className="line2">
+                                <span className="bar"><i style={{ width: '45%' }} /></span>
+                                <span className="pct">45%</span>
+                            </div>
+                            <div className="line3">
+                                <span className="remain-label">剩余</span>
+                                <span className="remain-val">30m15s</span>
+                                <span className="line3-status">杂草 虫害</span>
+                            </div>
+                            <div className="line4">&nbsp;</div>
+                        </div>
+                        <div className="retro-land">
+                            <div className="line1">#04 <span className="is-gold">金土</span> 蔬菜</div>
+                            <div className="line2">
+                                <span className="bar"><i style={{ width: '90%' }} /></span>
+                                <span className="pct">90%</span>
+                            </div>
+                            <div className="line3">
+                                <span className="remain-label">剩余</span>
+                                <span className="remain-val">5m45s</span>
+                            </div>
+                            <div className="line4">&nbsp;</div>
+                        </div>
+                        <div className="retro-land">
+                            <div className="line1">#05 <span className="is-normal">普通</span> 空地</div>
+                            <div className="line4">&nbsp;</div>
+                        </div>
+                        <div className="retro-land">
+                            <div className="line1">#06 <span className="is-normal">普通</span> 未解锁</div>
+                            <div className="line4">&nbsp;</div>
+                        </div>
+                    </div>
+                </section>
+
+                <aside className="retro-side">
+                    <section className="retro-panel">
+                        <h3>背包</h3>
+                        <div className="kv"><span>普通肥料</span><b>x123</b></div>
+                        <div className="kv"><span>有机肥料</span><b>x45</b></div>
+                        <div className="kv"><span>小麦种子</span><b>x67</b></div>
+                        <div className="kv"><span>玉米种子</span><b>x89</b></div>
+                        <div className="kv"><span>水稻种子</span><b>x32</b></div>
+                        <div className="kv"><span>蔬菜种子</span><b>x54</b></div>
+                    </section>
+
+                    <section className="retro-panel">
+                        <h3>任务</h3>
+                        <div className="task-head">可领 1 / 总 5</div>
+                        <div className="task-row">• 收获100个作物 (95/100)</div>
+                    </section>
+                </aside>
+            </div>
+
+            <section className="retro-panel retro-friends">
+                <h3>好友 (25人) 巡查 15/25</h3>
+                <div className="friend-stats-inline">
+                    <span>除草 12</span>
+                    <span>除虫 8</span>
+                    <span>浇水 15</span>
+                    <span>偷菜 20</span>
+                </div>
+                <div className="friend-list-grid">
+                    <div className="friend-chip">
+                        <span className="friend-chip-name">好友1</span>
+                        <span className="friend-chip-lv">Lv35</span>
+                    </div>
+                    <div className="friend-chip">
+                        <span className="friend-chip-name">好友2</span>
+                        <span className="friend-chip-lv">Lv38</span>
+                    </div>
+                    <div className="friend-chip">
+                        <span className="friend-chip-name">好友3</span>
+                        <span className="friend-chip-lv">Lv33</span>
+                    </div>
+                    <div className="friend-chip">
+                        <span className="friend-chip-name">好友4</span>
+                        <span className="friend-chip-lv">Lv40</span>
+                    </div>
+                    <div className="friend-chip">
+                        <span className="friend-chip-name">好友5</span>
+                        <span className="friend-chip-lv">Lv36</span>
+                    </div>
+                </div>
+            </section>
+
+            <section className="retro-panel retro-logs">
+                <h3>日志 (第1/5页 · ↑上翻 ↓下翻)</h3>
+                <div className="log-box">
+                    <div className="log-line">
+                        <span className="time">2026-02-19 00:50:32</span>
+                        <span className="tag">[收获]</span>
+                        <span className="msg">成功收获玉米 x10</span>
+                    </div>
+                    <div className="log-line">
+                        <span className="time">2026-02-19 00:49:15</span>
+                        <span className="tag">[种植]</span>
+                        <span className="msg">在土地#02种植了玉米</span>
+                    </div>
+                    <div className="log-line">
+                        <span className="time">2026-02-19 00:48:07</span>
+                        <span className="tag">[除草]</span>
+                        <span className="msg">清除了土地#03的杂草</span>
+                    </div>
+                    <div className="log-line">
+                        <span className="time">2026-02-19 00:47:23</span>
+                        <span className="tag">[除虫]</span>
+                        <span className="msg">清除了土地#03的虫害</span>
+                    </div>
+                    <div className="log-line">
+                        <span className="time">2026-02-19 00:46:51</span>
+                        <span className="tag">[浇水]</span>
+                        <span className="msg">给土地#01浇水</span>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+.claude/
+.vscode/
+__pycache__/
+dist/
+
+# Logs
+logs/
+*.log
+
+# Sensitive/Runtime data
+.env
+.env.local
+.farm-cards.json
+.admin-account-cache.json
+.system-settings.json
+.proxies.txt
+.farm-code.json
+.farm-stats.json
+.version.json
+.parent-commit
+dumps/
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Build/System
+bun.lockb
+*.tgz
+local/
+
+# Generated Data
+tools/*.json
+tools/*.csv
+tools/*.txt
+!tools/calc-exp-yield.ts

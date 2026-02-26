@@ -1,0 +1,10 @@
+{
+  "manualSeedId": 0,
+  "forceLowestLevelCrop": false,
+  "autoReplantMode": "levelup",
+  "replantProtectPercent": 80,
+  "useOrganicFertilizer": false,
+  "autoRefillFertilizer": true,
+  "enablePutBadThings": false,
+  "autoClaimFreeGifts": true
+}

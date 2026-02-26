@@ -1,0 +1,677 @@
+import { EventEmitter } from 'node:events'
+import type { Socket } from 'node:net'
+import { connect as tlsConnect } from 'node:tls' // Added
+// import { SocksProxyAgent } from 'socks-proxy-agent' // Removed
+import WebSocket from 'ws'
+import type { AppConfig } from '../config/schema.js'
+import { log, logWarn } from '../utils/logger.js'
+import { toLong, toNum } from '../utils/long.js'
+import { Socks5Client } from '../utils/socks5.js' // Added
+import { syncServerTime } from '../utils/time.js'
+import { types } from './proto-loader.js'
+import type { UserState } from './types.js'
+import { dumpNotify, dumpRaw, dumpResponse } from './ws-dumper.js'
+import { ProxyPool } from '../core/proxy-pool.js'
+
+type SendCallback = (err: Error | null, body?: Uint8Array, meta?: any) => void
+
+interface PendingEntry {
+  callback: SendCallback
+  sentAt: number
+}
+
+type ProxyDebug = {
+  configured: boolean
+  proxyUrlMasked: string
+  expected?: {
+    host: string
+    port: number
+    authUser?: string
+    hasAuth: boolean
+  }
+  socket?: {
+    remoteAddress?: string
+    remotePort?: number
+    localAddress?: string
+    localPort?: number
+  }
+  match?: {
+    portMatch: boolean
+    hostMatch?: boolean
+    strength: 'none' | 'weak' | 'strong'
+  }
+  checkedAt: number
+}
+
+function maskProxyUrl(proxyUrl: string): string {
+  try {
+    const u = new URL(proxyUrl)
+    if (u.password) u.password = '***'
+    return u.toString()
+  } catch {
+    return proxyUrl.replace(/:([^:@/]+)@/g, ':***@')
+  }
+}
+
+function parseSocksProxy(proxyUrl: string): { host: string; port: number; username: string; hasAuth: boolean } | null {
+  try {
+    const u = new URL(proxyUrl)
+    const host = u.hostname
+    const port = u.port ? Number(u.port) : 1080
+    const username = decodeURIComponent(u.username || '')
+    const hasAuth = Boolean(username || u.password)
+    if (!host) return null
+    return { host, port, username, hasAuth }
+  } catch {
+    return null
+  }
+}
+
+export class Connection extends EventEmitter {
+  private ws: WebSocket | null = null
+  private proxyUrl?: string
+  private clientSeq = 1
+  private serverSeq = 0
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null
+  private pendingCallbacks = new Map<number, PendingEntry>()
+  private lastHeartbeatResponse = Date.now()
+  private heartbeatMissCount = 0
+  private rttSamples: number[] = []
+  private static readonly MAX_RTT_SAMPLES = 20
+  private socketForDebug: Socket | null = null
+  private proxyDebug: ProxyDebug = {
+    configured: false,
+    proxyUrlMasked: '',
+    checkedAt: Date.now(),
+  }
+
+  readonly userState: UserState = { gid: 0, name: '', level: 0, gold: 0, exp: 0 }
+
+  constructor(
+    private config: AppConfig,
+    options: { proxyUrl?: string } = {},
+  ) {
+    super()
+    this.proxyUrl = options.proxyUrl
+  }
+
+  connect(code: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      this.socketForDebug = null
+      const url = `${this.config.serverUrl}?platform=${this.config.platform}&os=${this.config.os}&ver=${this.config.clientVersion}&code=${code}&openID=`
+      let settled = false
+
+      // Headers for WS handshake
+      const headers = {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36 MicroMessenger/7.0.20.1781(0x6700143B) NetType/WIFI MiniProgramEnv/Windows WindowsWechat/WMPF WindowsWechat(0x63090a13)',
+        Origin: 'https://gate-obt.nqf.qq.com',
+      }
+
+      const startWs = (socket?: Socket | any) => {
+        try {
+          const wsOptions: any = { headers }
+          if (socket) wsOptions.socket = socket
+
+          // Legacy SocksProxyAgent fallback is removed in favor of manual socket injection above.
+
+          this.ws = new WebSocket(url, wsOptions)
+          this.ws.binaryType = 'arraybuffer'
+
+          this.ws.on('open', () => {
+            // ... (keep existing open logic)
+            this.hardenUnderlyingSocket()
+            this.updateProxyDebugOnOpen()
+            this.sendLogin()
+              .then(() => {
+                settled = true
+                resolve()
+              })
+              .catch((err) => {
+                settled = true
+                reject(err)
+              })
+          })
+
+          this.ws.on('message', (data: Buffer | ArrayBuffer) => {
+            const buf = Buffer.isBuffer(data) ? data : Buffer.from(data)
+            this.handleMessage(buf)
+          })
+
+          this.ws.on('close', (code, _reason) => {
+            log('WS', `连接关闭 (code=${code})`)
+            this.cleanup()
+            if (!settled) {
+              settled = true
+              reject(new Error(`连接关闭 (code=${code})`))
+            }
+            this.emit('close', code)
+          })
+
+          this.ws.on('error', (err) => {
+            logWarn('WS', `错误: ${err.message}`)
+            if (!settled) {
+              settled = true
+              reject(err)
+            }
+            this.emit('error', err)
+          })
+
+        } catch (e: any) {
+          if (!settled) {
+            settled = true
+            reject(e)
+          }
+        }
+      }
+
+      if (this.proxyUrl) {
+        // Manual SOCKS5 logic
+        const targetUrl = new URL(this.config.serverUrl)
+        const host = targetUrl.hostname
+        const port = Number(targetUrl.port) || 443
+
+        log('代理', `正在通过 SOCKS5 连接 ${this.proxyUrl}...`)
+        Socks5Client.connect(this.proxyUrl, { host, port }, { timeout: 10000 })
+          .then((rawSocket) => {
+            if (this.proxyUrl) ProxyPool.markSuccess(this.proxyUrl);
+            log('代理', 'SOCKS5 隧道建立成功，正在进行 TLS 握手...')
+            this.socketForDebug = rawSocket
+            // Upgrade to TLS
+            const tlsSocket = tlsConnect({
+              socket: rawSocket,
+              servername: host,
+              rejectUnauthorized: false
+            })
+
+            tlsSocket.once('error', (err) => {
+              logWarn('TLS', `握手失败: ${err.message}`)
+              if (!settled) {
+                settled = true
+                reject(new Error(`TLS Error: ${err.message}`))
+              }
+            })
+
+            startWs(tlsSocket)
+          })
+          .catch((err) => {
+            if (this.proxyUrl) ProxyPool.markFailed(this.proxyUrl);
+            logWarn('代理', `SOCKS5 连接失败: ${err.message}`)
+            if (!settled) {
+              settled = true
+              reject(err)
+            }
+          })
+      } else {
+        startWs()
+      }
+    })
+  }
+
+  private hardenUnderlyingSocket(): void {
+    const wsAny = this.ws as any
+    const sock: Socket | undefined = wsAny?._socket
+    if (!sock) return
+    try {
+      sock.setKeepAlive(true, 3000)
+        ; (sock as any).setNoDelay?.(true)
+        ; (sock as any).setTimeout?.(0)
+    } catch { }
+  }
+
+  getProxyUrl(): string | undefined {
+    return this.proxyUrl
+  }
+
+  setProxyUrl(proxyUrl: string) {
+    this.proxyUrl = proxyUrl
+    this.updateProxyDebugOnOpen() // optional, but good to reset debug info
+  }
+
+  getProxyUrlMasked(): string | undefined {
+    if (!this.proxyUrl) return undefined
+    return maskProxyUrl(this.proxyUrl)
+  }
+
+  getProxyDebug(): ProxyDebug {
+    return this.proxyDebug
+  }
+
+  private updateProxyDebugOnOpen(): void {
+    const checkedAt = Date.now()
+    const wsAny = this.ws as any
+    const sock: Socket | undefined = this.socketForDebug || wsAny?._socket
+
+    if (!this.proxyUrl) {
+      this.proxyDebug = { configured: false, proxyUrlMasked: '', checkedAt }
+      return
+    }
+
+    const parsed = parseSocksProxy(this.proxyUrl)
+    const proxyUrlMasked = maskProxyUrl(this.proxyUrl)
+
+    const expected = parsed
+      ? {
+        host: parsed.host,
+        port: parsed.port,
+        authUser: parsed.username || undefined,
+        hasAuth: parsed.hasAuth,
+      }
+      : undefined
+
+    const remoteAddress = (sock as any)?.remoteAddress as string | undefined
+    const remotePort = (sock as any)?.remotePort as number | undefined
+    const localAddress = (sock as any)?.localAddress as string | undefined
+    const localPort = (sock as any)?.localPort as number | undefined
+
+    let match: ProxyDebug['match'] = { portMatch: false, strength: 'none' }
+    if (expected && typeof remotePort === 'number') {
+      const portMatch = remotePort === expected.port
+      const hostLooksIp = /^\d{1,3}(\.\d{1,3}){3}$/.test(expected.host)
+      const hostMatch = hostLooksIp && remoteAddress ? remoteAddress === expected.host : undefined
+      const strength: 'none' | 'weak' | 'strong' =
+        portMatch && hostMatch === true ? 'strong' : portMatch ? 'weak' : 'none'
+      match = { portMatch, hostMatch, strength }
+    }
+
+    this.proxyDebug = {
+      configured: true,
+      proxyUrlMasked,
+      expected,
+      socket: { remoteAddress, remotePort, localAddress, localPort },
+      match,
+      checkedAt,
+    }
+
+    // One-shot hint to confirm whether the TCP socket is actually connected to proxy endpoint.
+    const expectText = expected ? `${expected.host}:${expected.port}` : 'unknown'
+    const remoteText = remoteAddress && remotePort ? `${remoteAddress}:${remotePort}` : '--'
+    log('代理', `WS socket remote=${remoteText} expected=${expectText} confidence=${match?.strength}`)
+  }
+
+  sendMsg(serviceName: string, methodName: string, bodyBytes: Uint8Array, callback?: SendCallback): boolean {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      log('WS', '连接未打开')
+      return false
+    }
+    const seq = this.clientSeq
+    const msg = types.GateMessage.create({
+      meta: {
+        service_name: serviceName,
+        method_name: methodName,
+        message_type: 1,
+        client_seq: toLong(seq),
+        server_seq: toLong(this.serverSeq),
+      },
+      body: bodyBytes || Buffer.alloc(0),
+    })
+    const encoded = types.GateMessage.encode(msg).finish()
+    this.clientSeq++
+    if (callback) this.pendingCallbacks.set(seq, { callback, sentAt: Date.now() })
+    this.ws.send(encoded)
+    return true
+  }
+
+  sendMsgAsync(
+    serviceName: string,
+    methodName: string,
+    bodyBytes: Uint8Array,
+    timeout = 10000,
+  ): Promise<{ body: Uint8Array; meta: any }> {
+    return new Promise((resolve, reject) => {
+      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+        reject(new Error(`连接未打开: ${methodName}`))
+        return
+      }
+      const seq = this.clientSeq
+      const timer = setTimeout(() => {
+        this.pendingCallbacks.delete(seq)
+        reject(new Error(`请求超时: ${methodName} (seq=${seq}, pending=${this.pendingCallbacks.size})`))
+      }, timeout)
+
+      const sent = this.sendMsg(serviceName, methodName, bodyBytes, (err, body, meta) => {
+        clearTimeout(timer)
+        if (err) reject(err)
+        else resolve({ body: body!, meta })
+      })
+      if (!sent) {
+        clearTimeout(timer)
+        reject(new Error(`发送失败: ${methodName}`))
+      }
+    })
+  }
+
+  private handleMessage(buf: Buffer): void {
+    try {
+      const msg = types.GateMessage.decode(buf) as any
+      const meta = msg.meta
+      if (!meta) return
+
+      if (meta.server_seq) {
+        const seq = toNum(meta.server_seq)
+        if (seq > this.serverSeq) this.serverSeq = seq
+      }
+
+      const msgType = meta.message_type
+
+      if (msgType === 3) {
+        this.handleNotify(msg)
+        return
+      }
+
+      if (msgType === 2) {
+        dumpResponse(meta, msg.body)
+        const errorCode = toNum(meta.error_code)
+        if (errorCode === 1000014) {
+          this.emit('remoteLogin', {
+            service: meta.service_name || '',
+            method: meta.method_name || '',
+            code: errorCode,
+            message: meta.error_message || '玩家已在其他地方登录',
+          })
+        }
+        const clientSeqVal = toNum(meta.client_seq)
+        const entry = this.pendingCallbacks.get(clientSeqVal)
+        if (entry) {
+          this.pendingCallbacks.delete(clientSeqVal)
+          const rttMs = Date.now() - entry.sentAt
+          this.rttSamples.push(rttMs)
+          if (this.rttSamples.length > Connection.MAX_RTT_SAMPLES) this.rttSamples.shift()
+          if (errorCode !== 0) {
+            if (this.proxyUrl) ProxyPool.markSuccess(this.proxyUrl, rttMs)
+            entry.callback(
+              new Error(`${meta.service_name}.${meta.method_name} 错误: code=${errorCode} ${meta.error_message || ''}`),
+            )
+          } else {
+            if (this.proxyUrl) ProxyPool.markSuccess(this.proxyUrl, rttMs)
+            entry.callback(null, msg.body, meta)
+          }
+          return
+        }
+        if (errorCode !== 0) {
+          logWarn('错误', `${meta.service_name}.${meta.method_name} code=${errorCode} ${meta.error_message || ''}`)
+        }
+      }
+    } catch (err: any) {
+      dumpRaw(buf)
+      logWarn('解码', err.message)
+    }
+  }
+
+  private handleNotify(msg: any): void {
+    if (!msg.body || msg.body.length === 0) return
+    try {
+      const event = types.EventMessage.decode(msg.body) as any
+      const type = event.message_type || ''
+      const eventBody = event.body
+      dumpNotify(type, eventBody)
+
+      if (type.includes('Kickout')) {
+        log('推送', `被踢下线! ${type}`)
+        try {
+          const notify = types.KickoutNotify.decode(eventBody)
+          log('推送', `原因: ${(notify as any).reason_message || '未知'}`)
+        } catch (e: any) {
+          logWarn('推送', `Kickout 解码失败: ${e.message}`)
+        }
+        this.emit('kickout')
+        return
+      }
+
+      if (type.includes('LandsNotify')) {
+        try {
+          const notify = types.LandsNotify.decode(eventBody) as any
+          const hostGid = toNum(notify.host_gid)
+          const lands = notify.lands || []
+          if (lands.length > 0 && (hostGid === this.userState.gid || hostGid === 0)) {
+            this.emit('landsChanged', lands)
+          }
+        } catch (e: any) {
+          logWarn('推送', `LandsNotify 解码失败: ${e.message}`)
+        }
+        return
+      }
+
+      if (type.includes('ItemNotify')) {
+        try {
+          const notify = types.ItemNotify.decode(eventBody) as any
+          const items = notify.items || []
+          for (const itemChg of items) {
+            const item = itemChg.item
+            if (!item) continue
+            const id = toNum(item.id)
+            const count = toNum(item.count)
+            if (id === 1101 || id === 2) {
+              this.userState.exp = count
+              this.emit('expChanged', count)
+            } else if (id === 1 || id === 1001) {
+              this.userState.gold = count
+              this.emit('goldChanged', count)
+            }
+          }
+        } catch { }
+        return
+      }
+
+      if (type.includes('BasicNotify')) {
+        try {
+          const notify = types.BasicNotify.decode(eventBody) as any
+          if (notify.basic) {
+            const oldLevel = this.userState.level
+            this.userState.level = toNum(notify.basic.level) || this.userState.level
+            this.userState.gold = toNum(notify.basic.gold) || this.userState.gold
+            const exp = toNum(notify.basic.exp)
+            if (exp > 0) this.userState.exp = exp
+            if (this.userState.level !== oldLevel) {
+              log('系统', `升级! Lv${oldLevel} → Lv${this.userState.level}`)
+              this.emit('levelUp', { oldLevel, newLevel: this.userState.level })
+            }
+            this.emit('stateChanged', this.userState)
+          }
+        } catch { }
+        return
+      }
+
+      if (type.includes('FriendApplicationReceivedNotify')) {
+        try {
+          const notify = types.FriendApplicationReceivedNotify.decode(eventBody) as any
+          const applications = notify.applications || []
+          if (applications.length > 0) this.emit('friendApplicationReceived', applications)
+        } catch { }
+        return
+      }
+
+      if (type.includes('FriendAddedNotify')) {
+        try {
+          const notify = types.FriendAddedNotify.decode(eventBody) as any
+          const friends = notify.friends || []
+          if (friends.length > 0) {
+            const names = friends.map((f: any) => f.name || f.remark || `GID:${toNum(f.gid)}`).join(', ')
+            log('好友', `新好友: ${names}`)
+          }
+        } catch { }
+        return
+      }
+
+      if (type.includes('GoodsUnlockNotify')) {
+        try {
+          const notify = types.GoodsUnlockNotify.decode(eventBody) as any
+          const goods = notify.goods_list || []
+          if (goods.length > 0) log('商店', `解锁 ${goods.length} 个新商品!`)
+        } catch { }
+        return
+      }
+
+      if (type.includes('TaskInfoNotify')) {
+        try {
+          const notify = types.TaskInfoNotify.decode(eventBody) as any
+          if (notify.task_info) this.emit('taskInfoNotify', notify.task_info)
+        } catch { }
+        return
+      }
+
+      if (type.includes('NewEmailNotify')) {
+        try {
+          const notify = types.NewEmailNotify.decode(eventBody) as any
+          const emails = notify.new_emails || []
+          if (emails.length > 0) {
+            log('推送', `收到 ${emails.length} 封新邮件`)
+            this.emit('newEmailNotify', emails)
+          }
+        } catch { }
+        return
+      }
+
+      if (type.includes('DailyGiftStatusChanged')) {
+        try {
+          const notify = types.DailyGiftStatusChangedNTF.decode(eventBody) as any
+          if (notify.can_claim && !notify.claimed_today) {
+            log('推送', 'QQ会员礼包可领取')
+            this.emit('dailyGiftStatusChanged', notify)
+          }
+        } catch { }
+        return
+      }
+
+      if (type.includes('IllustratedRewardRedDotNotifyV2')) {
+        try {
+          const notify = types.IllustratedRewardRedDotNotifyV2.decode(eventBody) as any
+          if (notify.normal_reward_available || notify.premium_reward_available) {
+            this.emit('illustratedRewardRedDot', notify)
+          }
+        } catch { }
+        return
+      }
+    } catch (e: any) {
+      logWarn('推送', `解码失败: ${e.message}`)
+    }
+  }
+
+  private async sendLogin(): Promise<void> {
+    const body = types.LoginRequest.encode(
+      types.LoginRequest.create({
+        sharer_id: toLong(0),
+        sharer_open_id: '',
+        device_info: this.config.deviceInfo,
+        share_cfg_id: toLong(0),
+        scene_id: '1256',
+        report_data: {
+          callback: '',
+          cd_extend_info: '',
+          click_id: '',
+          clue_token: '',
+          minigame_channel: 'other',
+          minigame_platid: 2,
+          req_id: '',
+          trackid: '',
+        },
+      }),
+    ).finish()
+
+    return new Promise((resolve, reject) => {
+      this.sendMsg('gamepb.userpb.UserService', 'Login', body, (err, bodyBytes) => {
+        if (err) {
+          log('登录', `失败: ${err.message}`)
+          reject(err)
+          return
+        }
+        try {
+          const reply = types.LoginReply.decode(bodyBytes!) as any
+          if (reply.basic) {
+            this.userState.gid = toNum(reply.basic.gid)
+            this.userState.name = reply.basic.name || '未知'
+            this.userState.level = toNum(reply.basic.level)
+            this.userState.gold = toNum(reply.basic.gold)
+            this.userState.exp = toNum(reply.basic.exp)
+            if (reply.time_now_millis) syncServerTime(toNum(reply.time_now_millis))
+
+            log(
+              '登录',
+              `成功 GID=${this.userState.gid} ${this.userState.name} Lv${this.userState.level} 金币=${this.userState.gold}`,
+            )
+          }
+          this.startHeartbeat()
+          this.emit('login', this.userState)
+          resolve()
+        } catch (e: any) {
+          log('登录', `解码失败: ${e.message}`)
+          reject(e)
+        }
+      })
+    })
+  }
+
+  private startHeartbeat(): void {
+    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer)
+    this.lastHeartbeatResponse = Date.now()
+    this.heartbeatMissCount = 0
+
+    this.heartbeatTimer = setInterval(() => {
+      if (!this.userState.gid) return
+
+      const timeSinceLastResponse = Date.now() - this.lastHeartbeatResponse
+      if (timeSinceLastResponse > 60000) {
+        this.heartbeatMissCount++
+        logWarn('心跳', `连接可能已断开 (${Math.round(timeSinceLastResponse / 1000)}s 无响应)`)
+        if (this.heartbeatMissCount >= 2) {
+          log('心跳', '超时，关闭连接触发重连...')
+          this.pendingCallbacks.forEach((entry) => {
+            try {
+              entry.callback(new Error('连接超时，已清理'))
+            } catch { }
+          })
+          this.pendingCallbacks.clear()
+          this.ws?.close()
+          return
+        }
+      }
+
+      const body = types.HeartbeatRequest.encode(
+        types.HeartbeatRequest.create({
+          gid: toLong(this.userState.gid),
+          client_version: this.config.clientVersion,
+        }),
+      ).finish()
+      this.sendMsg('gamepb.userpb.UserService', 'Heartbeat', body, (err, replyBody) => {
+        if (err || !replyBody) return
+        this.lastHeartbeatResponse = Date.now()
+        this.heartbeatMissCount = 0
+        try {
+          const reply = types.HeartbeatReply.decode(replyBody) as any
+          if (reply.server_time) syncServerTime(toNum(reply.server_time))
+        } catch (e: any) {
+          logWarn('心跳', `解码失败: ${e.message}`)
+        }
+      })
+    }, this.config.heartbeatInterval)
+  }
+
+  getAverageRttMs(): number {
+    if (this.rttSamples.length === 0) return 150
+    const sorted = [...this.rttSamples].sort((a, b) => a - b)
+    return sorted[Math.floor(sorted.length / 2)]
+  }
+
+  cleanup(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer)
+      this.heartbeatTimer = null
+    }
+    this.pendingCallbacks.clear()
+    if (this.ws) {
+      this.ws.removeAllListeners()
+      try {
+        this.ws.close()
+      } catch { }
+      this.ws = null
+    }
+  }
+
+  close(): void {
+    this.cleanup()
+  }
+
+  isConnected(): boolean {
+    return this.ws !== null && this.ws.readyState === WebSocket.OPEN
+  }
+}

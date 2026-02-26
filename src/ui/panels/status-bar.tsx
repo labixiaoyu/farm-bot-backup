@@ -1,0 +1,37 @@
+import { Box, Text } from 'ink'
+import { getLevelExpProgress } from '../../config/game-data.js'
+import type { UserState } from '../../protocol/types.js'
+import { ProgressBar } from '../components/progress-bar.js'
+
+interface StatusBarProps {
+  user: UserState
+  platform: 'qq' | 'wx'
+  apiPort?: number
+}
+
+export function StatusBar({ user, platform, apiPort }: StatusBarProps) {
+  const progress = getLevelExpProgress(user.level || 0, user.exp || 0)
+
+  return (
+    <Box borderStyle="single" borderColor="gray" paddingX={1} justifyContent="space-between">
+      <Box gap={2}>
+        <Text color={platform === 'wx' ? 'magenta' : 'cyan'} bold>
+          {platform === 'wx' ? '微信' : 'QQ'}
+        </Text>
+        <Text bold>{user.name || '未登录'}</Text>
+        {(user.gid || 0) > 0 && <Text dimColor>({user.gid})</Text>}
+        <Text color="green">Lv{user.level || 0}</Text>
+        <Text color="yellow">金币 {(user.gold || 0).toLocaleString()}</Text>
+        <Box>
+          <Text>经验 </Text>
+          <ProgressBar current={progress.current} total={progress.needed} width={15} />
+          <Text dimColor>
+            {' '}
+            ({progress.current}/{progress.needed})
+          </Text>
+        </Box>
+      </Box>
+      {apiPort ? <Text dimColor>API :{apiPort}</Text> : null}
+    </Box>
+  )
+}

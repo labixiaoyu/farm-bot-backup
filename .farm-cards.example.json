@@ -1,0 +1,17 @@
+{
+  "version": 2,
+  "cards": [
+    {
+      "id": "replace-with-uuid",
+      "hash": "replace-with-sha256-hex",
+      "status": "active",
+      "cardType": "月卡",
+      "maxActivations": 1,
+      "usedCount": 0,
+      "maxBindAccounts": 2,
+      "boundAccountGids": [],
+      "expiresAt": 1893456000000,
+      "note": "example card"
+    }
+  ]
+}

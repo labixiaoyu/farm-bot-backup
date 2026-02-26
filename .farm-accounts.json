@@ -1,0 +1,68 @@
+[
+  {
+    "id": "account-2",
+    "platform": "qq",
+    "code": "db0f3d7f8ba1eda4cf4bf4cc44c40fb1",
+    "gid": 0,
+    "name": "连接中...",
+    "level": 0,
+    "status": "offline",
+    "statusReason": "server_restarted",
+    "statusAt": 1772136942833,
+    "totalRuntime": 0,
+    "proxy": "socks5://43.248.129.146:42182"
+  },
+  {
+    "id": "account-3",
+    "platform": "qq",
+    "code": "ef3a739c4155241e869bfe6fea267d42",
+    "gid": 0,
+    "name": "连接中...",
+    "level": 0,
+    "status": "offline",
+    "statusReason": "server_restarted",
+    "statusAt": 1772139891027,
+    "totalRuntime": 0,
+    "proxy": "socks5://43.248.129.146:57147"
+  },
+  {
+    "id": "account-4",
+    "platform": "qq",
+    "code": "a965e4a88365c35774ebe5406701003d",
+    "gid": 0,
+    "name": "连接中...",
+    "level": 0,
+    "status": "offline",
+    "statusReason": "server_restarted",
+    "statusAt": 1772140294887,
+    "totalRuntime": 0,
+    "proxy": "socks5://43.248.191.213:28800"
+  },
+  {
+    "id": "account-5",
+    "platform": "qq",
+    "code": "01da78143396c29cc73447dfbff399eb",
+    "gid": 0,
+    "name": "连接中...",
+    "level": 0,
+    "status": "offline",
+    "statusReason": "server_restarted",
+    "statusAt": 1772140436114,
+    "totalRuntime": 0,
+    "proxy": "socks5://43.248.191.213:28800"
+  },
+  {
+    "id": "account-6",
+    "platform": "qq",
+    "code": "252d6cd7c3c78a41d3dee652e2fd16e6",
+    "gid": 1010778513,
+    "name": "蜡笔",
+    "level": 2,
+    "status": "online",
+    "statusReason": "",
+    "statusAt": 1772140549964,
+    "totalRuntime": 0,
+    "proxy": "",
+    "qqNumber": "2973887948"
+  }
+]

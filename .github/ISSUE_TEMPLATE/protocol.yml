@@ -1,0 +1,53 @@
+name: 协议 / 游戏数据更新
+description: 报告协议变更、服务端更新或游戏数据过期
+labels: ["protocol"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        如果游戏更新导致 bot 无法正常工作，请在此反馈。
+
+        **重要**：请附上 `dumps/` 目录中的相关消息文件，这对协议分析至关重要。
+        运行后 `dumps/response/` 和 `dumps/notify/` 会自动保存所有 WS 消息的最新快照。
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述
+      description: 描述协议或数据异常的具体表现
+      placeholder: 例如：登录后立刻断开连接，日志显示协议版本不匹配
+    validations:
+      required: true
+
+  - type: textarea
+    id: dumps
+    attributes:
+      label: WS 消息快照
+      description: |
+        粘贴 `dumps/` 目录中相关的 JSON 文件内容。
+        例如登录问题请附上 `dumps/response/gamepb.userpb.UserService.Login.json`。
+      render: json
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志 / 抓包数据
+      description: 终端输出、`logs/` 日志或网络抓包信息
+      render: shell
+
+  - type: input
+    id: client-version
+    attributes:
+      label: 游戏客户端版本
+      placeholder: 例如：1.6.0.14
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: 平台
+      options:
+        - QQ
+        - 微信
+        - 均出现
+    validations:
+      required: true

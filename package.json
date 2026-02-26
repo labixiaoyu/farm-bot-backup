@@ -1,0 +1,37 @@
+{
+  "name": "terminal-farm-business",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Terminal-based QQ/WeChat farm automation with full-screen UI",
+  "main": "src/main.ts",
+  "scripts": {
+    "start": "bun run src/main.ts",
+    "dev": "bun run --watch src/main.ts",
+    "build:proto": "bun run scripts/build-proto.ts",
+    "build:web": "cd web-terminal && bun install && bun run build",
+    "build": "bun run scripts/build.ts",
+    "card": "bun run scripts/card-tool.ts",
+    "check": "bunx biome check .",
+    "format": "bunx biome format --write .",
+    "lint": "bunx biome lint ."
+  },
+  "dependencies": {
+    "axios": "^1.13.5",
+    "ink": "^6.7.0",
+    "long": "^5.3.2",
+    "protobufjs": "^8.0.0",
+    "qrcode-terminal": "^0.12.0",
+    "react": "^19.2.4",
+    "socks-proxy-agent": "^8.0.5",
+    "ws": "^8.19.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@types/bun": "^1.2.4",
+    "@types/qrcode-terminal": "^0.12.2",
+    "@types/react": "^18.3.18",
+    "@types/ws": "^8.5.14",
+    "protobufjs-cli": "^2.0.0"
+  }
+}
